@@ -55,26 +55,28 @@ class _NoteRec {
 
 class ChessSonifier {
 
+  final Map<TrackType, MidiInstrument> instrumentOverrides = {};
   late final mgr = MidiManager();
   late MidiSequencer _sqr;
   MidiSequencer get sequencer => _sqr;
+  late final Future<void> ready;
 
   final Random _rnd;
   final List<ZugMelody> voices;
 
   /// Rhythm figures are laid down every [tempo] plies.
-  final double tempo;
-  final MelodyStyle style;
+  double tempo;
+  MelodyStyle style;
 
   /// Reflect melodies back into range instead of pinning them at the edge.
-  final bool bounce;
+  bool bounce;
 
   /// Offsets (seconds, relative to the move's ply) of the capture and check
   /// cues. Both come straight from the Java version: the capture lands 1.5 s
   /// after the move starts, and the check cue is placed 1.5 s BEFORE the
   /// current ply, i.e. just ahead of the move that gave the check.
-  double captureOffset = 1.5;
-  double checkOffset = -1.5;
+  double captureOffset = .15;
+  double checkOffset = -.15;
 
   /// Note durations (in seconds) indexed by how far the move reached.
   final List<double> noteLengths = [.25, .25, .5, .5, 1, 1, 2, 2];
@@ -112,13 +114,15 @@ class ChessSonifier {
       v.reset(); // starts every voice in the middle of its range
     }
     _setRandomSoloist(true);
-    print("Loading...");
-    mgr.load(preset.assignments).then((_) {
-      print("MIDI Loaded");
+    ready = mgr.load(preset.assignments).then((_) {
       mgr.masterVolume = .5;
       mgr.muted = false;
       _sqr = MidiSequencer(mgr);
     });
+  }
+
+  void setMasterVolume(double volume) {
+    mgr.masterVolume = volume.clamp(0.0, 1.0);
   }
 
   void startGame() {
@@ -333,18 +337,30 @@ class ChessSonifier {
     ));
   }
 
-  void play() {
-    print("Ready: ${mgr.audioReady}, ${mgr.enabled}, ${mgr.muted}");
-    final tracks =  buildMidiTracks(notes,preset);
+  Future<void> play() async {
+    await ready;
+    final tracks = buildMidiTracks(notes, preset, mgr);
     for (final track in tracks) { //print(track.events);
       _sqr.addTrack(track);
     }
-    if (_sqr != null) {
-      print("Playing tracks: ${tracks.length}");
-      _sqr.seek(0);
-      _sqr.play();
-    }
+    //print("Playing tracks: ${tracks.length}");
+    _sqr.seek(0);
+    _sqr.play();
   }
+
+  MidiInstrument instrumentFor(TrackType track) {
+    return instrumentOverrides[track] ?? preset.instrumentFor(track);
+  }
+
+  Future<void> setInstrument(
+      TrackType track,
+      MidiInstrument instrument,
+      ) async {
+    await ready;
+    await mgr.changeInstrument(track.name, instrument);
+    instrumentOverrides[track] = instrument;
+  }
+
 }
 
 extension NumberParsing on PieceType {

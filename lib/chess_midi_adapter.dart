@@ -73,13 +73,29 @@ class EnsemblePreset {
 
 /// One [MidiTrack] per sonifier track that actually has notes, in track order.
 /// Velocity (0-127) becomes the event volume (0-1).
-List<MidiTrack> buildMidiTracks(List<SonNote> notes, EnsemblePreset preset) {
+List<MidiTrack> buildMidiTracks(
+    List<SonNote> notes,
+    EnsemblePreset preset,
+    MidiManager mgr,
+    ) {
   final tracks = <TrackType, MidiTrack>{};
   final instruments = <TrackType, Instrument>{};
   for (final n in notes) {
     final track = tracks.putIfAbsent(n.track, () => MidiTrack(n.track.name));
     final inst = instruments.putIfAbsent(
-        n.track, () => Instrument(iPatch: preset.instrumentFor(n.track), level: .5));
+      n.track,
+          () {
+        final instrument = mgr.orchMap[n.track.name];
+
+        if (instrument == null) {
+          throw StateError(
+            'No MIDI instrument loaded for ${n.track.name}',
+          );
+        }
+
+        return instrument;
+      },
+    );
     track.events.add(MidiEvent(inst, n.pitch, n.start, n.duration, volume: n.velocity / 127));
   }
   for (final t in tracks.values) {
