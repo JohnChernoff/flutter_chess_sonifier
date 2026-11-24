@@ -90,7 +90,7 @@ packages:
     source: hosted
     version: "1.4.0"
   chess:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: chess
       sha256: "6e5a8222931bfb5cd14a4bb9b030c24e257e23957ec3c533fb0ff74a48984ddb"
@@ -182,15 +182,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  flutter_chess_board:
-    dependency: "direct main"
-    description:
-      path: "."
-      ref: HEAD
-      resolved-ref: "9d6655a78a4616bf6250d60c1fb181a4a9971133"
-      url: "https://github.com/JohnChernoff/flutter_chess_board"
-    source: git
-    version: "1.0.1"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -502,6 +493,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
+  wp_chessboard:
+    dependency: "direct main"
+    description:
+      path: "C:/Users/jac107/IdeaProjects/flutter/wp_chessboard_fork"
+      relative: false
+    source: path
+    version: "0.0.7"
   xdg_directories:
     dependency: transitive
     description:

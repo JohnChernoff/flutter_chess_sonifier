@@ -1,6 +1,7 @@
+import 'package:chess/chess.dart' as dc;
 import 'package:flutter/material.dart';
-import 'package:flutter_chess_board/flutter_chess_board.dart';
 import 'package:flutter_chess_sonifier/chess_sonifier.dart';
+import 'package:wp_chessboard/wp_chessboard.dart';
 import 'package:zug_music/zug_midi.dart';
 import 'chess_midi_adapter.dart';
 
@@ -20,7 +21,7 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       title: 'Chess Sonifier',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
       ),
       home: const SonifierApp(title: 'Chess Sonifier'),
     );
@@ -36,59 +37,58 @@ class SonifierApp extends StatefulWidget {
 }
 
 class _SonifierAppState extends State<SonifierApp> {
-  late final ChessBoardController chessBoardController = ChessBoardController();
+  late final WPChessboardController chessBoardController = WPChessboardController();
   late final TextEditingController pgnController = TextEditingController();
-  final chess = Chess();
-  List<Move> replayMoves = [];
+  final chess = dc.Chess();
+  List<dc.Move> replayMoves = [];
   int displayedPly = 0;
 
   @override
   void initState() {
     super.initState();
     pgnController.text = "e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+ Nc3 Nxe4 O-O Bxc3 d5 Ne5 bxc3 Nxc4 Qd4 f5 Qxc4 d6";
+    chessBoardController.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
   }
 
   @override
   Widget build(BuildContext context) {
-   return Scaffold(body: Center(child: Column(children: [
+   return Scaffold(body: Center(child:
      Row(children: [
-       ValueListenableBuilder<Chess>(
-         valueListenable: chessBoardController,
-         builder: (context, game, _) {
-           return ChessBoard(
-             controller: chessBoardController,
+       Column(children: [
+         ElevatedButton(onPressed: sonify, child: Text("Sonify")),
+         SizedBox(
+           width: 500,
+           height: 128,
+           child: TextField(
+             controller: pgnController,
+             expands: true,
+             maxLines: null,
+             minLines: null,
+             textAlignVertical: TextAlignVertical.top,
+             style: const TextStyle(
+               fontFamily: 'monospace',
+               fontSize: 14,
+             ),
+             decoration: const InputDecoration(
+               border: OutlineInputBorder(),
+               hintText: 'Paste PGN here...',
+               alignLabelWithHint: true,
+             ),
+           ),
+         ),
+         WPChessboard(
              size: 500,
-             blackPieceColor: Colors.white,
-           );
-         },
-       ),
+             pieceSpeed: 1000,
+             squareBuilder: defSquareBuilder,
+             pieceMap: WPChessboard.defPieceMap,
+             controller: chessBoardController),
+       ]),
       Column(children: [
-        SizedBox(
-          width: 500,
-          height: 128,
-          child: TextField(
-            controller: pgnController,
-            expands: true,
-            maxLines: null,
-            minLines: null,
-            textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 14,
-            ),
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: 'Paste PGN here...',
-              alignLabelWithHint: true,
-            ),
-          ),
-        ),
         buildSettings(),
         buildInstrumentControls(),
       ],)
      ]),
-     ElevatedButton(onPressed: sonify, child: Text("Sonify")),
-   ])));
+   ));
   }
 
   Future<void> sonify() async {
@@ -113,7 +113,7 @@ class _SonifierAppState extends State<SonifierApp> {
     // Return to the initial position for visual playback.
     resetGame();
     displayedPly = 0;
-    chessBoardController.loadFen(chess.fen);
+    chessBoardController.setFen(chess.fen);
 
     sonifier.play();
   }
@@ -146,7 +146,7 @@ class _SonifierAppState extends State<SonifierApp> {
       displayedPly++;
     }
 
-    chessBoardController.loadFen(chess.fen);
+    chessBoardController.setFen(chess.fen);
   }
 
   Widget buildSettings() {
@@ -313,3 +313,5 @@ class _SonifierAppState extends State<SonifierApp> {
     );
   }
 }
+
+

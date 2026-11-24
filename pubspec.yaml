@@ -35,9 +35,8 @@ dependencies:
   zug_chess:
     git: "https://github.com/JohnChernoff/zug_chess"
 
-  flutter_chess_board:
-    git: "https://github.com/JohnChernoff/flutter_chess_board"
-    #path: "C:/Users/jac107/IdeaProjects/flutter/flutter_chess_board"
+  wp_chessboard:
+    path: "C:/Users/jac107/IdeaProjects/flutter/wp_chessboard_fork"
 
   logging: ^1.2.0
   universal_html: ^2.2.4
@@ -46,6 +45,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  chess: ^0.8.1
 
 dev_dependencies:
   flutter_test:

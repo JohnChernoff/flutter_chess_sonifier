@@ -8,7 +8,7 @@
 library;
 
 import 'dart:math';
-import 'package:flutter_chess_board/flutter_chess_board.dart';
+import 'package:chess/chess.dart';
 import 'package:zug_music/key.dart';
 import 'package:zug_music/scale.dart';
 import 'package:zug_music/sequencer.dart';
