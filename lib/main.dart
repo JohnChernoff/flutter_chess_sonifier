@@ -3,9 +3,10 @@ import 'package:flutter_chess_board/flutter_chess_board.dart';
 import 'package:flutter_chess_sonifier/chess_sonifier.dart';
 import 'chess_midi_adapter.dart';
 
-final ChessSonifier sonifier = ChessSonifier(voices: EnsemblePreset.orchestra.voices);
+late final ChessSonifier sonifier;
 
 void main() {
+  sonifier = ChessSonifier(preset: EnsemblePreset.orchestra);
   runApp(const MainApp());
 }
 
@@ -36,21 +37,29 @@ class SonifierApp extends StatefulWidget {
 class _SonifierAppState extends State<SonifierApp> {
   late final ChessBoardController chessBoardController = ChessBoardController();
   late final TextEditingController pgnController = TextEditingController();
+  final chess = Chess();
+
+  @override
+  void initState() {
+    super.initState();
+    pgnController.text = "e4 e5 Nf3";
+    //chessBoardController.game = chess;
+  }
 
   @override
   Widget build(BuildContext context) {
    return Scaffold(body: Center(child: Column(children: [
      Row(children: [
-       ChessBoard(
-           controller: chessBoardController,
-           size: 500,
-           blackPieceColor: Colors.white,
-           onMove: (from,to,prom) {
-             print(from);
-             print(to);
-             print(prom);
-             print(chessBoardController.getFen());
-           }),
+       ValueListenableBuilder<Chess>(
+         valueListenable: chessBoardController,
+         builder: (context, game, _) {
+           return ChessBoard(
+             controller: chessBoardController,
+             size: 500,
+             blackPieceColor: Colors.white,
+           );
+         },
+       ),
        SizedBox(
          width: 500,
          height: 500,
@@ -72,27 +81,39 @@ class _SonifierAppState extends State<SonifierApp> {
          ),
        )
      ]),
-     ElevatedButton(onPressed: () {
-       print(pgnController.text);
-       final chess = Chess();
-       if (chess.load_pgn(pgnController.text)) {
-         print("Loaded PGN");
-
-         final moves = chess.history.map((s) => s.move).toList();
-
-         // Restore the initial position.
-         while (chess.history.isNotEmpty) {
-           chess.undo_move();
-         }
-         int ply = 0;
-         // Now replay the moves in chronological order.
-         for (final move in moves) {
-           print(move.debug);
-           chess.make_move(move);
-           sonifier.sonifyMove(move, ply++, chess);
-         }
-       }
-     }, child: Text("Sonify"))
+     ElevatedButton(onPressed: sonify, child: Text("Sonify"))
    ])));
+  }
+
+  void sonify() {
+    print(pgnController.text);
+    if (chess.load_pgn(pgnController.text)) { //print("Loaded PGN");
+      sonifier.startGame();
+      final movelist = chess.history.map((s) => s.move).toList();
+      resetGame();
+      int ply = 0;
+      // Now replay the moves in chronological order.
+      for (final move in movelist) { //print(move.debug);
+        sonifier.sonifyMove(move, ply++, chess);
+        chess.make_move(move);
+      }
+      sonifier.play();
+      playGame(movelist);
+    }
+  }
+
+  void resetGame() {
+    while (chess.history.isNotEmpty) {
+      chess.undo_move();
+    }
+  }
+
+  Future<void> playGame(List<Move> movelist) async {
+    resetGame();
+    for (final move in movelist) {
+      chess.make_move(move);
+      chessBoardController.loadFen(chess.fen);
+      await Future.delayed(const Duration(seconds: 1));
+    }
   }
 }

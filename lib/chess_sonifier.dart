@@ -8,11 +8,13 @@
 library;
 
 import 'dart:math';
-
 import 'package:flutter_chess_board/flutter_chess_board.dart';
 import 'package:zug_music/key.dart';
 import 'package:zug_music/scale.dart';
+import 'package:zug_music/sequencer.dart';
+import 'package:zug_music/zug_midi.dart';
 import 'package:zug_music/zug_music.dart';
+import 'chess_midi_adapter.dart';
 
 /// Same order as chesslib's PieceType (pawn = 0 ... king = 5).
 //enum PieceKind { pawn, knight, bishop, rook, queen, king }
@@ -52,22 +54,9 @@ class _NoteRec {
 }
 
 class ChessSonifier {
-  ChessSonifier({
-    required List<VoiceSpec> voices,
-    Random? random,
-    this.tempo = 2,
-    this.style = MelodyStyle.distance,
-    this.bounce = false,
-  })  : assert(voices.isNotEmpty && voices.length <= 4, 'melody1..melody4 only'),
-        _rnd = random ?? Random(),
-        voices = [
-          for (final v in voices) ZugMelody(v.start, minPitch: v.minPitch, maxPitch: v.maxPitch)
-        ] {
-    for (final v in this.voices) {
-      v.reset(); // starts every voice in the middle of its range
-    }
-    _setRandomSoloist(true);
-  }
+
+  late final mgr = MidiManager();
+  MidiSequencer? sqr;
 
   final Random _rnd;
   final List<ZugMelody> voices;
@@ -105,8 +94,48 @@ class ChessSonifier {
   /// End of the last note, in seconds.
   double get duration => notes.fold(0.0, (d, n) => max(d, n.end));
 
+  EnsemblePreset preset;
+
+  ChessSonifier({
+    required this.preset,
+    Random? random,
+    this.tempo = 2,
+    this.style = MelodyStyle.distance,
+    this.bounce = false,
+  })  : assert(preset.voices.isNotEmpty && preset.voices.length <= 4, 'melody1..melody4 only'),
+        _rnd = random ?? Random(),
+        voices = [
+          for (final v in preset.voices) ZugMelody(v.start, minPitch: v.minPitch, maxPitch: v.maxPitch)
+        ] {
+    for (final v in voices) {
+      v.reset(); // starts every voice in the middle of its range
+    }
+    _setRandomSoloist(true);
+    print("Loading...");
+    mgr.load(preset.assignments).then((_) {
+      print("MIDI Loaded");
+      mgr.masterVolume = .5;
+      mgr.muted = false;
+    });
+  }
+
+  void startGame() {
+    notes.clear();
+    _noteList.clear();
+    _noteLoopIndex = 0;
+    _rankProgress[true] = 3;
+    _rankProgress[false] = 3;
+    key = ZugKey(ZugNote.noteC, Scale.majorScale);
+    rhythmType = RhythmType.chords;
+    for (final v in voices) { v.reset(); v.currentTick = 0; }
+    _setRandomSoloist(true);
+    sqr?.stop();
+    sqr?.clearTracks();
+  }
+
   /// Sonify one move. Call it with the position BEFORE the move is made.
   void sonifyMove(Move move, int ply, Chess board) {
+    print("Sonifying: ${move.debug}");
     if (move.captured != null) {
       final pitch =
           key.getNextPitch(ZugPitch(48 + key.keyNote.index), move.captured!.interval).pitch;
@@ -203,26 +232,41 @@ class ChessSonifier {
   // Rhythm figures
   // ---------------------------------------------------------------------
 
-  /// One chord per file (a..h): every piece on the file adds the pitch that
-  /// many scale steps up from the tonic, according to its rank.
-  ///
-  /// Ported as-is, including two quirks of the Java: each chord is emitted one
-  /// slot late, and the last file's chord is never emitted.
   void _addRhythmChords(Chess board, int ply, {required bool cross}) {
-    final chord = <int>[];
-    for (int a = 0; a < 8; a++) {
-      if (chord.isNotEmpty) {
-        for (final p in chord) {
-          _add(TrackType.rhythm1, p, 50, ply + (a / 8) * tempo, (1 / 8) / tempo);
-        }
-        chord.clear();
-      }
+    const divisions = 8;
+    final slotDuration = tempo / divisions;
+
+    for (int a = 0; a < divisions; a++) {
+      final chord = <int>[];
+
       for (int b = 0; b < 8; b++) {
         final file = cross ? a : b;
         final rank = cross ? b : a;
+        final degree = cross ? rank : file;
+
         if (board.pieceAt(file, rank) != null) {
-          chord.add(key.getNextPitch(ZugPitch(key.keyNote.index + 48), b).pitch);
+          // The scanned coordinate determines the scale degree.
+          chord.add(
+            key.getNextPitch(
+              ZugPitch(key.keyNote.index + 48),
+              degree,
+            ).pitch,
+          );
         }
+      }
+
+      if (chord.isEmpty) continue;
+
+      final start = ply + a * slotDuration;
+
+      for (final pitch in chord) {
+        _add(
+          TrackType.rhythm1,
+          pitch,
+          50,
+          start,
+          slotDuration,
+        );
       }
     }
   }
@@ -235,17 +279,33 @@ class ChessSonifier {
   /// One note per file, at the rank of the lowest non-pawn piece (a back-rank
   /// piece only counts if nothing else is on the file).
   void _addArpeggio(Chess board, int ply, int o) {
+    final slotDuration = tempo / 8;
+
     for (int file = 0; file < 8; file++) {
-      int interval = -1;
+      int? selectedRank;
+
+      // Find the lowest non-pawn piece on this file.
       for (int rank = 7; rank >= 0; rank--) {
-        if ((rank > 0 || (interval < 0 || interval == 7)) && _isPiece(board, file, rank)) {
-          interval = rank;
+        if (_isPiece(board, file, rank)) {
+          selectedRank = rank;
+          break;
         }
       }
-      if (interval >= 0) {
-        final pitch = key.getNextPitch(ZugPitch(key.keyNote.index + octave * o), interval).pitch;
-        _add(TrackType.rhythm1, pitch, 50, ply + file / (8 / tempo), 1 / 8);
-      }
+
+      if (selectedRank == null) continue;
+
+      final pitch = key.getNextPitch(
+        ZugPitch(key.keyNote.index + octave * o),
+        selectedRank,
+      ).pitch;
+
+      _add(
+        TrackType.rhythm1,
+        pitch,
+        50,
+        ply + file * slotDuration,
+        slotDuration,
+      );
     }
   }
 
@@ -269,6 +329,20 @@ class ChessSonifier {
       max(0.0, start), // the check cue can land before time zero early on
       dur,
     ));
+  }
+
+  void play() {
+    print("Ready: ${mgr.audioReady}, ${mgr.enabled}, ${mgr.muted}");
+    sqr = MidiSequencer(mgr);
+    final tracks =  buildMidiTracks(notes,preset);
+    for (final track in tracks) { //print(track.events);
+      sqr?.addTrack(track);
+    }
+    if (sqr != null) {
+      print("Playing tracks: ${tracks.length}");
+      sqr?.seek(0);
+      sqr?.play();
+    }
   }
 }
 
@@ -295,31 +369,17 @@ extension NumberParsing on PieceType {
 }
 
 extension MoveUtil on Move {
-  int get fromFile => Chess.file(from); //from % 8;
-  int get fromRank => Chess.rank(from); //from ~/ 8;
-  int get toFile => Chess.file(to); //to % 8;
-  int get toRank => Chess.rank(to); //to ~/ 8;
-
+  int get fromFile => Chess.file(from);
+  int get fromRank => 7 - Chess.rank(from); // 0 = rank 1
+  int get toFile => Chess.file(to);
+  int get toRank => 7 - Chess.rank(to);
   bool get white => color == Color.WHITE;
   String get pan => "$fromAlgebraic -> $toAlgebraic";
   String get debug => "[$pan, $from -> $to, FromFile: $fromFile, FromRank: $fromRank, ToFile: $toFile, ToRank: $toRank]";
 }
 
 extension ChessUtil on Chess {
-  PieceType? pieceAt(int file, int rank) {
-    final i = (rank * 8) + file;
-    return board[toChessSquare(i)]?.type; //get(Chess.algebraic(toChessSquare(i)))?.type;
-  }
-
-  static int toBoardIndex(int square) {
-    final rank = square >> 4;  // 0 = rank 8, 7 = rank 1
-    final file = square & 7;   // 0 = file a, 7 = file h
-    return rank * 8 + file;
-  }
-
-  static int toChessSquare(int index) {
-    final rank = index ~/ 8;
-    final file = index % 8;
-    return rank * 16 + file;
-  }
+  PieceType? pieceAt(int file, int rank) => board[(7 - rank) * 16 + file]?.type;
+  /// 0x88 square -> a1 = 0 ... h8 = 63
+  static int toBoardIndex(int square) => (7 - (square >> 4)) * 8 + (square & 7);
 }
