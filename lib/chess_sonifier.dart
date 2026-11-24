@@ -56,7 +56,8 @@ class _NoteRec {
 class ChessSonifier {
 
   late final mgr = MidiManager();
-  MidiSequencer? sqr;
+  late MidiSequencer _sqr;
+  MidiSequencer get sequencer => _sqr;
 
   final Random _rnd;
   final List<ZugMelody> voices;
@@ -116,6 +117,7 @@ class ChessSonifier {
       print("MIDI Loaded");
       mgr.masterVolume = .5;
       mgr.muted = false;
+      _sqr = MidiSequencer(mgr);
     });
   }
 
@@ -129,8 +131,8 @@ class ChessSonifier {
     rhythmType = RhythmType.chords;
     for (final v in voices) { v.reset(); v.currentTick = 0; }
     _setRandomSoloist(true);
-    sqr?.stop();
-    sqr?.clearTracks();
+    _sqr.stop();
+    _sqr.clearTracks();
   }
 
   /// Sonify one move. Call it with the position BEFORE the move is made.
@@ -333,15 +335,14 @@ class ChessSonifier {
 
   void play() {
     print("Ready: ${mgr.audioReady}, ${mgr.enabled}, ${mgr.muted}");
-    sqr = MidiSequencer(mgr);
     final tracks =  buildMidiTracks(notes,preset);
     for (final track in tracks) { //print(track.events);
-      sqr?.addTrack(track);
+      _sqr.addTrack(track);
     }
-    if (sqr != null) {
+    if (_sqr != null) {
       print("Playing tracks: ${tracks.length}");
-      sqr?.seek(0);
-      sqr?.play();
+      _sqr.seek(0);
+      _sqr.play();
     }
   }
 }

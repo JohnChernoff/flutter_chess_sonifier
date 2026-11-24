@@ -38,12 +38,13 @@ class _SonifierAppState extends State<SonifierApp> {
   late final ChessBoardController chessBoardController = ChessBoardController();
   late final TextEditingController pgnController = TextEditingController();
   final chess = Chess();
+  List<Move> replayMoves = [];
+  int displayedPly = 0;
 
   @override
   void initState() {
     super.initState();
-    pgnController.text = "e4 e5 Nf3";
-    //chessBoardController.game = chess;
+    pgnController.text = "e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+ Nc3 Nxe4 O-O Bxc3 d5 Ne5 bxc3 Nxc4 Qd4 f5 Qxc4 d6";
   }
 
   @override
@@ -62,7 +63,7 @@ class _SonifierAppState extends State<SonifierApp> {
        ),
        SizedBox(
          width: 500,
-         height: 500,
+         height: 128,
          child: TextField(
            controller: pgnController,
            expands: true,
@@ -86,20 +87,28 @@ class _SonifierAppState extends State<SonifierApp> {
   }
 
   void sonify() {
-    print(pgnController.text);
-    if (chess.load_pgn(pgnController.text)) { //print("Loaded PGN");
-      sonifier.startGame();
-      final movelist = chess.history.map((s) => s.move).toList();
-      resetGame();
-      int ply = 0;
-      // Now replay the moves in chronological order.
-      for (final move in movelist) { //print(move.debug);
-        sonifier.sonifyMove(move, ply++, chess);
-        chess.make_move(move);
-      }
-      sonifier.play();
-      playGame(movelist);
+    if (!chess.load_pgn(pgnController.text)) return;
+    sonifier.sequencer!.addListener(syncBoardToAudio);
+
+    sonifier.startGame();
+
+    replayMoves = chess.history.map((s) => s.move).toList();
+
+    // Generate the music from the initial position forward.
+    resetGame();
+
+    int ply = 0;
+    for (final move in replayMoves) {
+      sonifier.sonifyMove(move, ply++, chess);
+      chess.make_move(move);
     }
+
+    // Return to the initial position for visual playback.
+    resetGame();
+    displayedPly = 0;
+    chessBoardController.loadFen(chess.fen);
+
+    sonifier.play();
   }
 
   void resetGame() {
@@ -108,12 +117,28 @@ class _SonifierAppState extends State<SonifierApp> {
     }
   }
 
-  Future<void> playGame(List<Move> movelist) async {
-    resetGame();
-    for (final move in movelist) {
-      chess.make_move(move);
-      chessBoardController.loadFen(chess.fen);
-      await Future.delayed(const Duration(seconds: 1));
+  void syncBoardToAudio() {
+    final seq = sonifier.sequencer;
+    if (!seq.isPlaying) return;
+
+    // At time 0, show move 1; at time 1, show move 2, etc.
+    final targetPly = (seq.currentTime.floor() + 1)
+        .clamp(0, replayMoves.length)
+        .toInt();
+
+    if (targetPly == displayedPly) return;
+
+    // Handle backward seeking.
+    if (targetPly < displayedPly) {
+      resetGame();
+      displayedPly = 0;
     }
+
+    while (displayedPly < targetPly) {
+      chess.make_move(replayMoves[displayedPly]);
+      displayedPly++;
+    }
+
+    chessBoardController.loadFen(chess.fen);
   }
 }
