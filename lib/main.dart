@@ -2,9 +2,11 @@ import 'package:chess/chess.dart' as dc;
 import 'package:flutter/material.dart';
 import 'package:flutter_chess_sonifier/chess_sonifier.dart';
 import 'package:flutter_chess_sonifier/controls.dart';
+import 'package:flutter_chess_sonifier/pgn_database.dart';
 import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
 import 'chess_midi_adapter.dart';
+import 'game_picker.dart';
 
 //TODO: centralize controls, responsive layout(s), MIDI export
 
@@ -44,18 +46,22 @@ class _SonifierAppState extends State<SonifierApp> {
   dc.Chess chess = dc.Chess();
   List<dc.Move> replayMoves = [];
   int displayedPly = 0;
+  late final PgnDatabase pgnDatabase;
 
   @override
   void initState() {
     super.initState();
     pgnController.text = "e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+ Nc3 Nxe4 O-O Bxc3 d5 Ne5 bxc3 Nxc4 Qd4 f5 Qxc4 d6";
     chessBoardController.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    pgnDatabase = PgnDatabase();
+    pgnDatabase.initialize();
   }
 
   @override
   void dispose() {
     widget.sonifier.sequencer.removeListener(syncBoardToAudio);
     pgnController.dispose();
+    pgnDatabase.dispose();
     super.dispose();
   }
 
@@ -64,6 +70,22 @@ class _SonifierAppState extends State<SonifierApp> {
    return Scaffold(body: Center(child:
      Row(children: [
        Column(children: [
+         ElevatedButton(
+             onPressed: () async {
+               final game = await showGamePicker(
+                 context,
+                 pgnDatabase,
+               );
+
+               if (game == null) return;
+
+               final pgn = pgnDatabase.getGame(game);
+               setState(() {
+                 pgnController.text = pgn;
+               });
+             },
+             child: Text("Select Game")
+         ),
          SizedBox(
            width: 500,
            height: 128,
