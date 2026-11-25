@@ -6,6 +6,8 @@ import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
 import 'chess_midi_adapter.dart';
 
+//TODO: centralize controls, responsive layout(s), MIDI export
+
 void main() {
   ChessSonifier sonifier = ChessSonifier(preset: EnsemblePreset.orchestra);
   runApp(MainApp(sonifier));

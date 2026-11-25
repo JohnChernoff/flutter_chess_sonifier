@@ -34,7 +34,7 @@ class _SettingsWidgetState extends State<SettingsWidget> {
     return Card(
         child: ExpansionTile(
           title: const Text('Sonification Settings'),
-          initiallyExpanded: true,
+          initiallyExpanded: false,
           children: [
             // Master volume
             ListTile(
