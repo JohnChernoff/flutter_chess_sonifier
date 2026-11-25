@@ -57,8 +57,7 @@ class ChessSonifier {
 
   final Map<TrackType, MidiInstrument> instrumentOverrides = {};
   late final mgr = MidiManager();
-  late MidiSequencer _sqr;
-  MidiSequencer get sequencer => _sqr;
+  late final MidiSequencer sequencer = MidiSequencer(mgr);
   late final Future<void> ready;
 
   final Random _rnd;
@@ -75,7 +74,7 @@ class ChessSonifier {
   /// cues. Both come straight from the Java version: the capture lands 1.5 s
   /// after the move starts, and the check cue is placed 1.5 s BEFORE the
   /// current ply, i.e. just ahead of the move that gave the check.
-  double captureOffset = .15;
+  double captureOffset = .33;
   double checkOffset = -.15;
 
   /// Note durations (in seconds) indexed by how far the move reached.
@@ -99,6 +98,8 @@ class ChessSonifier {
 
   EnsemblePreset preset;
 
+  RhythmType startingRhythm = RhythmType.chords;
+
   ChessSonifier({
     required this.preset,
     Random? random,
@@ -117,7 +118,6 @@ class ChessSonifier {
     ready = mgr.load(preset.assignments).then((_) {
       mgr.masterVolume = .5;
       mgr.muted = false;
-      _sqr = MidiSequencer(mgr);
     });
   }
 
@@ -132,11 +132,11 @@ class ChessSonifier {
     _rankProgress[true] = 3;
     _rankProgress[false] = 3;
     key = ZugKey(ZugNote.noteC, Scale.majorScale);
-    rhythmType = RhythmType.chords;
+    rhythmType = startingRhythm;
     for (final v in voices) { v.reset(); v.currentTick = 0; }
     _setRandomSoloist(true);
-    _sqr.stop();
-    _sqr.clearTracks();
+    sequencer.stop();
+    sequencer.clearTracks();
   }
 
   /// Sonify one move. Call it with the position BEFORE the move is made.
@@ -146,7 +146,9 @@ class ChessSonifier {
       final pitch =
           key.getNextPitch(ZugPitch(48 + key.keyNote.index), move.captured!.interval).pitch;
       _add(TrackType.capture, pitch, 99, ply + captureOffset, 1);
-    } else if (voices[_currentSolo].currentTick < ply - 4) {
+    }
+
+    if (voices[_currentSolo].currentTick < ply - 4) {
       // The soloist has fallen well behind the game clock: pick a (possibly new) soloist and bring it up to date.
       _setRandomSoloist(true);
       voices[_currentSolo].currentTick = ply.toDouble();
@@ -341,11 +343,11 @@ class ChessSonifier {
     await ready;
     final tracks = buildMidiTracks(notes, preset, mgr);
     for (final track in tracks) { //print(track.events);
-      _sqr.addTrack(track);
+      sequencer.addTrack(track);
     }
     //print("Playing tracks: ${tracks.length}");
-    _sqr.seek(0);
-    _sqr.play();
+    sequencer.seek(0);
+    sequencer.play();
   }
 
   MidiInstrument instrumentFor(TrackType track) {

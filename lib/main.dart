@@ -1,19 +1,19 @@
 import 'package:chess/chess.dart' as dc;
 import 'package:flutter/material.dart';
 import 'package:flutter_chess_sonifier/chess_sonifier.dart';
+import 'package:flutter_chess_sonifier/controls.dart';
+import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
-import 'package:zug_music/zug_midi.dart';
 import 'chess_midi_adapter.dart';
 
-late final ChessSonifier sonifier;
-
 void main() {
-  sonifier = ChessSonifier(preset: EnsemblePreset.orchestra);
-  runApp(const MainApp());
+  ChessSonifier sonifier = ChessSonifier(preset: EnsemblePreset.orchestra);
+  runApp(MainApp(sonifier));
 }
 
 class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+  final ChessSonifier sonifier;
+  const MainApp(this.sonifier,{super.key});
 
   // This widget is the root of your application.
   @override
@@ -23,14 +23,14 @@ class MainApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
       ),
-      home: const SonifierApp(title: 'Chess Sonifier'),
+      home: SonifierApp(sonifier: sonifier),
     );
   }
 }
 
 class SonifierApp extends StatefulWidget {
-  final String title;
-  const SonifierApp({super.key, required this.title});
+  final ChessSonifier sonifier;
+  const SonifierApp({super.key, required this.sonifier});
 
   @override
   State<SonifierApp> createState() => _SonifierAppState();
@@ -39,7 +39,7 @@ class SonifierApp extends StatefulWidget {
 class _SonifierAppState extends State<SonifierApp> {
   late final WPChessboardController chessBoardController = WPChessboardController();
   late final TextEditingController pgnController = TextEditingController();
-  final chess = dc.Chess();
+  dc.Chess chess = dc.Chess();
   List<dc.Move> replayMoves = [];
   int displayedPly = 0;
 
@@ -51,11 +51,17 @@ class _SonifierAppState extends State<SonifierApp> {
   }
 
   @override
+  void dispose() {
+    widget.sonifier.sequencer.removeListener(syncBoardToAudio);
+    pgnController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
    return Scaffold(body: Center(child:
      Row(children: [
        Column(children: [
-         ElevatedButton(onPressed: sonify, child: Text("Sonify")),
          SizedBox(
            width: 500,
            height: 128,
@@ -82,22 +88,29 @@ class _SonifierAppState extends State<SonifierApp> {
              squareBuilder: defSquareBuilder,
              pieceMap: WPChessboard.defPieceMap,
              controller: chessBoardController),
+         SizedBox(height: 8),
+         ElevatedButton(onPressed: sonify, child: Text("Sonify")),
+         SizedBox(height: 8),
+         SizedBox(width: 500, child: TransportBar(widget.sonifier.sequencer))
        ]),
-      Column(children: [
-        buildSettings(),
-        buildInstrumentControls(),
-      ],)
-     ]),
+       Expanded(child: SettingsWidget(widget.sonifier)),
+    ]),
    ));
   }
 
   Future<void> sonify() async {
-    if (!chess.load_pgn(pgnController.text)) return;
-    await sonifier.ready;
+    final tmpChess = dc.Chess();
+    if (!tmpChess.load_pgn(pgnController.text)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invalid Pgn")));
+      return;
+    }
+    await widget.sonifier.ready;
+    chess = tmpChess;
+    widget.sonifier.sequencer
+      ..removeListener(syncBoardToAudio)
+      ..addListener(syncBoardToAudio);
 
-    sonifier.sequencer.addListener(syncBoardToAudio);
-
-    sonifier.startGame();
+    widget.sonifier.startGame();
 
     replayMoves = chess.history.map((s) => s.move).toList();
 
@@ -106,16 +119,24 @@ class _SonifierAppState extends State<SonifierApp> {
 
     int ply = 0;
     for (final move in replayMoves) {
-      sonifier.sonifyMove(move, ply++, chess);
+      widget.sonifier.sonifyMove(move, ply++, chess);
       chess.make_move(move);
     }
+    if (chess.game_over) {
+      widget.sonifier.sonifyMove(dc.Move(chess.turn,chess.kings[chess.turn],
+          chess.kings[chess.turn == dc.Color.BLACK ? dc.Chess.WHITE : dc.Chess.BLACK],
+          0,dc.PieceType.KING,null,null), ply, chess);
+    }
 
-    // Return to the initial position for visual playback.
     resetGame();
     displayedPly = 0;
     chessBoardController.setFen(chess.fen);
 
-    sonifier.play();
+    widget.sonifier.sequencer
+      ..removeListener(syncBoardToAudio)
+      ..addListener(syncBoardToAudio);
+
+    widget.sonifier.play();
   }
 
   void resetGame() {
@@ -125,193 +146,26 @@ class _SonifierAppState extends State<SonifierApp> {
   }
 
   void syncBoardToAudio() {
-    final seq = sonifier.sequencer;
-    if (!seq.isPlaying) return;
+    final seq = widget.sonifier.sequencer;
+    if (replayMoves.isEmpty) return;
 
-    // At time 0, show move 1; at time 1, show move 2, etc.
-    final targetPly = (seq.currentTime.floor() + 1)
-        .clamp(0, replayMoves.length)
-        .toInt();
-
-    if (targetPly == displayedPly) return;
-
-    // Handle backward seeking.
-    if (targetPly < displayedPly) {
-      resetGame();
-      displayedPly = 0;
+    final int targetPly;
+    if (seq.duration > 0 && seq.currentTime >= seq.duration) {
+      targetPly = replayMoves.length;                 // parked at the end
+    } else if (seq.isPlaying || seq.currentTime > 0) {
+      targetPly = seq.currentTime.floor() + 1;        // time 0 = move 1 while playing
+    } else {
+      targetPly = 0;                                  // paused at 0 = starting position
     }
+    final ply = targetPly.clamp(0, replayMoves.length).toInt();
 
-    while (displayedPly < targetPly) {
+    if (ply == displayedPly) return;
+    if (ply < displayedPly) { resetGame(); displayedPly = 0; }
+    while (displayedPly < ply) {
       chess.make_move(replayMoves[displayedPly]);
       displayedPly++;
     }
-
     chessBoardController.setFen(chess.fen);
   }
 
-  Widget buildSettings() {
-    return SizedBox(
-      width: 420,
-      child: Card(
-        child: ExpansionTile(
-          title: const Text('Sonification Settings'),
-          initiallyExpanded: true,
-          children: [
-            // Master volume
-            ListTile(
-              title: const Text('Master Volume'),
-              subtitle: Slider(
-                value: sonifier.mgr.masterVolume.clamp(0.0, 1.0),
-                min: 0,
-                max: 1,
-                divisions: 20,
-                label: '${(sonifier.mgr.masterVolume * 100).round()}%',
-                onChanged: (value) {
-                  setState(() => sonifier.setMasterVolume(value));
-                },
-              ),
-            ),
-
-            // Rhythm spacing
-            ListTile(
-              title: const Text('Rhythm Spacing'),
-              subtitle: Slider(
-                value: sonifier.tempo.clamp(1.0, 8.0),
-                min: 1,
-                max: 8,
-                divisions: 7,
-                label: '${sonifier.tempo.round()} plies',
-                onChanged: (value) {
-                  setState(() => sonifier.tempo = value);
-                },
-              ),
-            ),
-
-            // Rhythm type
-            ListTile(
-              title: const Text('Rhythm Type'),
-              trailing: DropdownButton<RhythmType>(
-                value: sonifier.rhythmType,
-                items: [
-                  for (final type in RhythmType.values)
-                    DropdownMenuItem(
-                      value: type,
-                      child: Text(type.name),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => sonifier.rhythmType = value);
-                },
-              ),
-            ),
-
-            // Melody style
-            ListTile(
-              title: const Text('Melody Style'),
-              trailing: DropdownButton<MelodyStyle>(
-                value: sonifier.style,
-                items: [
-                  for (final style in MelodyStyle.values)
-                    DropdownMenuItem(
-                      value: style,
-                      child: Text(style.name),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => sonifier.style = value);
-                },
-              ),
-            ),
-
-            // Capture timing
-            ListTile(
-              title: const Text('Capture Offset'),
-              subtitle: Slider(
-                value: sonifier.captureOffset.clamp(0.0, 0.5),
-                min: 0,
-                max: 0.5,
-                divisions: 10,
-                label: '${sonifier.captureOffset.toStringAsFixed(2)} s',
-                onChanged: (value) {
-                  setState(() => sonifier.captureOffset = value);
-                },
-              ),
-            ),
-
-            // Check timing
-            ListTile(
-              title: const Text('Check Offset'),
-              subtitle: Slider(
-                value: sonifier.checkOffset.clamp(-0.5, 0.0),
-                min: -0.5,
-                max: 0,
-                divisions: 10,
-                label: '${sonifier.checkOffset.toStringAsFixed(2)} s',
-                onChanged: (value) {
-                  setState(() => sonifier.checkOffset = value);
-                },
-              ),
-            ),
-
-            SwitchListTile(
-              title: const Text('Bounce Melodies'),
-              value: sonifier.bounce,
-              onChanged: (value) {
-                setState(() => sonifier.bounce = value);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildInstrumentControls() {
-    final tracks = [
-      ...TrackType.values.where(
-            (t) => t.index < sonifier.voices.length,
-      ),
-      TrackType.rhythm1,
-      TrackType.capture,
-      TrackType.check,
-    ];
-
-    return SizedBox(
-      width: 420,
-      child: Card(
-        child: ExpansionTile(
-          title: const Text('Instruments'),
-          children: [
-            for (final track in tracks)
-              ListTile(
-                dense: true,
-                title: Text(track.name),
-                trailing: DropdownButton<MidiInstrument>(
-                  value: sonifier.instrumentFor(track),
-                  isExpanded: false,
-                  items: [
-                    for (final instrument in MidiInstrument.values)
-                      DropdownMenuItem(
-                        value: instrument,
-                        child: Text(instrument.name),
-                      ),
-                  ],
-                  onChanged: (instrument) async {
-                    if (instrument == null) return;
-
-                    await sonifier.setInstrument(track, instrument);
-
-                    if (mounted) setState(() {});
-                  },
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 }
-
-
