@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:chess/chess.dart' as dc;
 import 'package:flutter/material.dart';
 import 'package:flutter_chess_sonifier/chess_sonifier.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_chess_sonifier/pgn_database.dart';
 import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
 import 'chess_midi_adapter.dart';
+import 'evolve.dart';
 import 'game_picker.dart';
 
 //TODO: centralize controls, responsive layout(s), MIDI export
@@ -65,61 +68,111 @@ class _SonifierAppState extends State<SonifierApp> {
     super.dispose();
   }
 
+  static const _wideBreakpoint = 900.0;
+
   @override
   Widget build(BuildContext context) {
-   return Scaffold(body: Center(child:
-     Row(children: [
-       Column(children: [
-         ElevatedButton(
-             onPressed: () async {
-               final game = await showGamePicker(
-                 context,
-                 pgnDatabase,
-               );
+    return Scaffold(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) =>
+          c.maxWidth >= _wideBreakpoint ? _buildWide(c) : _buildNarrow(c),
+        ),
+      ),
+    );
+  }
 
-               if (game == null) return;
+  Widget _buildWide(BoxConstraints c) {
+    // Height left over for the buttons, PGN box, and transport bar.
+    const chrome = 330.0;
+    final boardSize =
+    min(c.maxHeight - chrome, c.maxWidth * 0.55).clamp(280.0, 720.0).toDouble();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: boardSize + 32,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: _mainColumn(boardSize),
+          ),
+        ),
+        Expanded(child: SettingsWidget(widget.sonifier)),
+      ],
+    );
+  }
 
-               final pgn = pgnDatabase.getGame(game);
-               setState(() {
-                 pgnController.text = pgn;
-               });
-             },
-             child: Text("Select Game")
-         ),
-         SizedBox(
-           width: 500,
-           height: 128,
-           child: TextField(
-             controller: pgnController,
-             expands: true,
-             maxLines: null,
-             minLines: null,
-             textAlignVertical: TextAlignVertical.top,
-             style: const TextStyle(
-               fontFamily: 'monospace',
-               fontSize: 14,
-             ),
-             decoration: const InputDecoration(
-               border: OutlineInputBorder(),
-               hintText: 'Paste PGN here...',
-               alignLabelWithHint: true,
-             ),
-           ),
-         ),
-         WPChessboard(
-             size: 500,
-             pieceSpeed: 1000,
-             squareBuilder: defSquareBuilder,
-             pieceMap: WPChessboard.defPieceMap,
-             controller: chessBoardController),
-         SizedBox(height: 8),
-         ElevatedButton(onPressed: sonify, child: Text("Sonify")),
-         SizedBox(height: 8),
-         SizedBox(width: 500, child: TransportBar(widget.sonifier.sequencer))
-       ]),
-       Expanded(child: SettingsWidget(widget.sonifier)),
-    ]),
-   ));
+  Widget _buildNarrow(BoxConstraints c) {
+    final boardSize = min(c.maxWidth - 16, 600.0);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          _mainColumn(boardSize),
+          const SizedBox(height: 8),
+          SettingsWidget(widget.sonifier, shrinkWrap: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _mainColumn(double size) {
+    return Column(
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            ElevatedButton(onPressed: _selectGame, child: const Text("Select Game")),
+            ElevatedButton(onPressed: sonify, child: const Text("Sonify")),
+            ElevatedButton(onPressed: _evolve, child: const Text("Evolve")),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: size,
+          height: 96,
+          child: TextField(
+            controller: pgnController,
+            expands: true,
+            maxLines: null,
+            minLines: null,
+            textAlignVertical: TextAlignVertical.top,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'Paste PGN here...',
+              alignLabelWithHint: true,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        WPChessboard(
+          size: size,
+          pieceSpeed: 1000,
+          squareBuilder: defSquareBuilder,
+          pieceMap: WPChessboard.defPieceMap,
+          controller: chessBoardController,
+        ),
+        const SizedBox(height: 8),
+        SizedBox(width: size, child: TransportBar(widget.sonifier.sequencer)),
+      ],
+    );
+  }
+
+  Future<void> _selectGame() async {
+    final game = await showGamePicker(context, pgnDatabase);
+    if (game == null) return;
+    setState(() => pgnController.text = pgnDatabase.getGame(game));
+  }
+
+  void _evolve() {
+    replayMoves = [];
+    final rnd = Random();
+    final seed = happyBirthday();
+    final result = evolveMelody(seed, startPitch: 64, random: rnd);
+    widget.sonifier.playNotes(melodyToNotes(result));
   }
 
   Future<void> sonify() async {

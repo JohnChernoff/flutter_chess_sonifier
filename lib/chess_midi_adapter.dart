@@ -9,6 +9,13 @@ import 'package:zug_music/sequencer.dart';
 import 'package:zug_music/zug_midi.dart';
 import 'chess_sonifier.dart';
 
+const Map<TrackType,MidiDrum> drumKit = {
+  TrackType.bass : MidiDrum.bassDrum1,
+  TrackType.cow : MidiDrum.cowBell,
+  TrackType.mid : MidiDrum.midTom1,
+  TrackType.snare: MidiDrum.snareDrum1
+};
+
 /// Replaces the Java `Ensemble` enum: voice ranges plus instruments.
 class EnsemblePreset {
   final String name;
@@ -18,6 +25,7 @@ class EnsemblePreset {
   final List<VoiceSpec> voices;
   final List<MidiInstrument> melody;
   final MidiInstrument rhythm, capture, check;
+  final Map<TrackType,MidiDrum> drums;
 
   const EnsemblePreset({
     required this.name,
@@ -26,6 +34,7 @@ class EnsemblePreset {
     required this.rhythm,
     required this.capture,
     required this.check,
+    this.drums = drumKit
   });
 
   /// clarinet / cello / horn / tuba (the old otpc_bbc1 ranges).
@@ -59,13 +68,14 @@ class EnsemblePreset {
     return switch (track) {
       TrackType.capture => capture,
       TrackType.check => check,
+      //TrackType.bass => drumKit[TrackType.bass],
       _ => rhythm, // rhythm1 and the (unused) harmony track
     };
   }
 
   /// Everything the MidiManager has to load before playback.
   List<MidiAssignment> get assignments => [
-        for (final t in TrackType.values)
+        for (final t in TrackType.values.where((t) => !t.drums))
           if (t != TrackType.harmony && (t.index >= 4 || t.index < melody.length))
             MidiAssignment(t.name, instrumentFor(t), defLevel: .5),
       ];
@@ -87,14 +97,13 @@ List<MidiTrack> buildMidiTracks(
           () {
         final instrument = mgr.orchMap[n.track.name];
 
-        if (instrument == null) {
+        if (instrument == null && !n.track.drums) {
           throw StateError(
             'No MIDI instrument loaded for ${n.track.name}',
           );
         }
 
-        return instrument;
-      },
+        return instrument ?? mgr.drumMap[drumKit[n.track]] ?? Instrument.drum(drumPatch: drumKit[n.track]);      },
     );
     track.events.add(MidiEvent(inst, n.pitch, n.start, n.duration, volume: n.velocity / 127));
   }
