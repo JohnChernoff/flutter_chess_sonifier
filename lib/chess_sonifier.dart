@@ -144,7 +144,9 @@ class ChessSonifier {
         .load(preset.assignments)
         .then((_) => mgr.loadDrumKit(drumKit.values.toList()))
         .then((_) {
-      for (final d in mgr.drumMap.values) { d.level = 1.0; }
+      for (final d in mgr.drumMap.values) { d.level = 1.0; d.mute = true; }
+      instrumentObjectFor(TrackType.check)?.level = .33;
+      instrumentObjectFor(TrackType.capture)?.level = .25;
       mgr.masterVolume = .5;
       mgr.muteDrums = false;
       mgr.muted = false;
@@ -297,7 +299,7 @@ class ChessSonifier {
     final voice = voices[_currentSolo];
     voice.currentTick = ply.toDouble();   // each group is exactly 1 s long
     IntervalMap intMap = IntervalMap.fromMove(m);
-    print("Move: ${m.pan}, IntMap: $intMap");
+    //print("Move: ${m.pan}, IntMap: $intMap");
     double dur;
     if (royalty(m.piece)) {
       dur = 1/3;
@@ -496,7 +498,7 @@ class ChessSonifier {
       }
       v[rank] = (v[rank] * .5).ceil();
     }
-    print("Move: ${move.pan}, values: $v");
+    //print("Move: ${move.pan}, values: $v");
     return v;
   }
 

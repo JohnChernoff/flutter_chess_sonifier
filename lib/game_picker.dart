@@ -1,4 +1,6 @@
 
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_chess_sonifier/pgn_database.dart';
 
@@ -131,12 +133,22 @@ class _GamePickerDialogState extends State<GamePickerDialog> {
 
               const Divider(),
 
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.casino),
+                    label: const Text('Random'),
+                    onPressed: games.isEmpty
+                        ? null
+                        : () => Navigator.pop(
+                        context, games[Random().nextInt(games.length)]),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                ],
               ),
             ],
           ),

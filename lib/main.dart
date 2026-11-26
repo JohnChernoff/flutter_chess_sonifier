@@ -125,8 +125,13 @@ class _SonifierAppState extends State<SonifierApp> {
           alignment: WrapAlignment.center,
           children: [
             ElevatedButton(onPressed: _selectGame, child: const Text("Select Game")),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.casino),
+              label: const Text("Random"),
+              onPressed: () => _randomGame(play: true),
+            ),
             ElevatedButton(onPressed: sonify, child: const Text("Sonify")),
-            ElevatedButton(onPressed: _evolve, child: const Text("Evolve")),
+            //ElevatedButton(onPressed: _evolve, child: const Text("Evolve")),
           ],
         ),
         const SizedBox(height: 8),
@@ -243,6 +248,18 @@ class _SonifierAppState extends State<SonifierApp> {
       displayedPly++;
     }
     chessBoardController.setFen(chess.fen);
+  }
+
+  void _randomGame({bool play = false}) {
+    final games = pgnDatabase.search('');
+    if (games.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No games loaded yet')));
+      return;
+    }
+    final game = games[Random().nextInt(games.length)];
+    setState(() => pgnController.text = pgnDatabase.getGame(game));
+    if (play) sonify();
   }
 
 }
