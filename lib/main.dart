@@ -8,7 +8,6 @@ import 'package:flutter_chess_sonifier/pgn_database.dart';
 import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
 import 'chess_midi_adapter.dart';
-import 'evolve.dart';
 import 'game_picker.dart';
 
 //TODO: centralize controls, responsive layout(s), MIDI export
@@ -170,14 +169,6 @@ class _SonifierAppState extends State<SonifierApp> {
     final game = await showGamePicker(context, pgnDatabase);
     if (game == null) return;
     setState(() => pgnController.text = pgnDatabase.getGame(game));
-  }
-
-  void _evolve() {
-    replayMoves = [];
-    final rnd = Random();
-    final seed = happyBirthday();
-    final result = evolveMelody(seed, startPitch: 64, random: rnd);
-    widget.sonifier.playNotes(melodyToNotes(result));
   }
 
   Future<void> sonify() async {

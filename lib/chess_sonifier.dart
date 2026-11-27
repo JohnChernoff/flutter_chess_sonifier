@@ -295,6 +295,10 @@ class ChessSonifier {
     addVoiceNote(voice, interval, dur, m);
   }
 
+  void _addFancierRankMelody(Move m, int ply) {
+
+  }
+
   void _addFancyRankMelody(Move m, int ply) {
     final voice = voices[_currentSolo];
     voice.currentTick = ply.toDouble();   // each group is exactly 1 s long
