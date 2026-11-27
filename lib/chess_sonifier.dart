@@ -12,6 +12,7 @@ import 'package:chess/chess.dart';
 import 'package:zug_music/key.dart';
 import 'package:zug_music/scale.dart';
 import 'package:zug_music/sequencer.dart';
+import 'package:zug_music/theme.dart';
 import 'package:zug_music/zug_midi.dart';
 import 'package:zug_music/zug_music.dart';
 import 'chess_midi_adapter.dart';
@@ -72,6 +73,8 @@ class _NoteRec {
   const _NoteRec(this.note, this.piece);
 }
 
+
+
 class ChessSonifier {
 
   final Map<TrackType, MidiInstrument> instrumentOverrides = {};
@@ -82,6 +85,9 @@ class ChessSonifier {
   Random _rnd;
   final List<ZugMelody> voices;
 
+  ZugTheme theme = ZugTheme(Meter(numerator: 4, denominator: 4, strongBeatOffsets: [1,3]));
+
+  bool get themeReady => theme.length >= 16;
   /// Rhythm figures are laid down every [tempo] plies.
   double tempo;
   MelodyStyle style;
@@ -156,7 +162,7 @@ class ChessSonifier {
         .load(preset.assignments)
         .then((_) => mgr.loadDrumKit(drumKit.values.toList()))
         .then((_) {
-      for (final d in mgr.drumMap.values) { d.level = 1.0; d.mute = true; }
+      //for (final d in mgr.drumMap.values) { d.level = 1.0; d.mute = true; }
       instrumentObjectFor(TrackType.check)?.level = .33;
       instrumentObjectFor(TrackType.capture)?.level = .25;
       mgr.masterVolume = .5;
@@ -178,7 +184,7 @@ class ChessSonifier {
     _noteLoopIndex = 0;
     _rankProgress[true] = 3;
     _rankProgress[false] = 3;
-    key = ZugKey(ZugNote.noteC, Scale.majorScale);
+    key = ZugKey(ZugNote.noteC, Scale.chromaticScale); //Scale.majorScale);
     rhythmType = startingRhythm;
     for (final v in voices) { v.reset(); v.currentTick = 0; }
     _setRandomSoloist(true);
@@ -188,10 +194,17 @@ class ChessSonifier {
     _rankPitch = 60;
     lastMovedPiece = PieceType.KING;
     _pendingMelody = null;
+    theme = ZugTheme(Meter(numerator: 4, denominator: 4, strongBeatOffsets: [1,3]));
   }
 
   /// Sonify one move. Call it with the position BEFORE the move is made.
   void sonifyMove(Move move, int ply, Chess board) {
+
+    if (!themeReady) {
+      print("Adding move to theme: ${move.pan}");
+      _addTheme(move, ply);
+    }
+
     //print("Sonifying: ${move.debug}");
     if (move.captured != null) {
       final pitch =
@@ -208,7 +221,7 @@ class ChessSonifier {
     if (rhythmType != CompType.ranks) {
       _addMelody(move);
     } else {
-      _addFancierRankMelody(move, ply);
+      if (themeReady) _addThematicMelody(move, ply);
 
       //if (move.piece == lastMovedPiece || move.piece == PieceType.PAWN || board.in_check || move.captured != null) {
       if (move.piece != lastMovedPiece && !board.in_check && move.captured == null) {
@@ -276,11 +289,11 @@ class ChessSonifier {
     key = ZugKey(ZugNote.values[move.toFile], _keyScales[ply % 3]);
   }
 
-  void addVoiceNote(ZugMelody voice, int interval, double dur, Move m) {
+  void addVoiceNote(ZugMelody voice, int interval, double dur, Move? m) {
     voice.setPitchFrom(key.getNextPitch(voice, interval, bounce: bounce));
     _add(TrackType.values[_currentSolo], voice.pitch, 50, voice.currentTick, dur);
     voice.currentTick += dur;
-    _noteList.add(_NoteRec(voice.note, m.piece));
+    _noteList.add(_NoteRec(voice.note, m?.piece ?? PieceType.KING));
   }
 
   // ---------------------------------------------------------------------
@@ -309,18 +322,50 @@ class ChessSonifier {
     addVoiceNote(voice, interval, dur, m);
   }
 
-  void _addFancierRankMelody(Move m, int ply) {
-    if (feel == null) return;
+  void _addTheme(Move m, int ply) {
+    int i2 = m.color == Color.BLACK ? 7 - m.fromRank : m.fromRank;
+    int i1 = m.color == Color.BLACK ? 7 - m.toRank : m.toRank;
+    int i = i1 + i2;
+    if (m.toFile < 4) i *= -1;
+    NoteVal v = switch(m.piece) {
+      PieceType.KNIGHT => NoteVal(RhythmicUnit.eighth),
+      PieceType.BISHOP => NoteVal(RhythmicUnit.quarter),
+      PieceType.ROOK => NoteVal(RhythmicUnit.eighth,dots: 1),
+      PieceType.QUEEN => NoteVal(RhythmicUnit.quarter,dots: 1),
+      PieceType.KING => NoteVal(RhythmicUnit.half),
+      PieceType() => NoteVal(RhythmicUnit.sixteenth),
+    };
+    print("Thematic interval: $i");
+    if (m.piece != PieceType.PAWN) {
+      theme.addNote(i, v);
+    } else {
+      theme.addSnappedNote(i);
+    }
+  }
+
+  void _playTheme() {
     final voice = voices[_currentSolo];
+    for (final note in theme.elements) {
+      addVoiceNote(voice,note.interval, note.duration * .25, null);
+    }
+  }
+
+  void _addThematicMelody(Move m, int ply) {
+    final voice = voices[_currentSolo];
+    voice.reset();                       // fix 5; reset first, then set the clock
     voice.currentTick = ply.toDouble();
-    final f = feel!.arousalAt(voice.currentTick) * 2; //(feel generally goes from 0-.5)
-    int subBeats = (8 * f).round();
-    print("Move: ${m.pan}, Feel: ${f.toStringAsFixed(2)}, subBeats: $subBeats");
-    double dur = 1 / subBeats;
-    for (int i = 0; i<subBeats; i++) {
-      final interval =  (_rnd.nextInt(8) - 8) + 4;
-      print("Interval: $interval");
-      addVoiceNote(voice,interval, dur, m);
+
+    // arousalAt is already 0..1 (fix 1); hold a middling density without analysis (fix 2).
+    final a = feel?.arousalAt(voice.currentTick) ?? 0.5;
+    final count = min(8, (8 * a).round());
+    if (count == 0) return;
+
+    final start = m.white ? m.toRank : 7 - m.toRank;   // fix 6; max start + count is 15
+
+    // Development: mirror the theme while Black is better.
+    final black = (feel?.valenceAt(voice.currentTick) ?? 0) < 0;
+    for (final e in theme.scaledSlice(start, start + count, 1, invert: black)) {
+      addVoiceNote(voice, e.interval, e.duration, m);
     }
   }
 
@@ -465,6 +510,7 @@ class ChessSonifier {
   }
 
   void _addBeat(Chess board, int ply, Move move) {
+    if (feel == null) return;
     const slots = 8;
     const slotDur = 1 / slots;
     for (final trackType in TrackType.values.where((t) => t.drums)) {
@@ -473,8 +519,8 @@ class ChessSonifier {
         final v = values[r];
         if (v == 0) continue; // empty rank = 32nd rest
         final t = ply + r * slotDur;
-        //print("Adding: $trackType => $t");
-        _add(trackType, 60, v, t, slotDur);
+        print("Adding: $trackType => $t");
+        _add(trackType, 60, (feel!.arousalAt(t) * 100).round(), t, slotDur);
       }
     }
   }

@@ -41,7 +41,7 @@ class EnsemblePreset {
   static const orchestra = EnsemblePreset(
     name: 'orchestra',
     voices: [VoiceSpec(60, 52, 88), VoiceSpec(48, 36, 76), VoiceSpec(60, 48, 72), VoiceSpec(36, 24, 66)],
-    melody: [MidiInstrument.clarinet, MidiInstrument.cello, MidiInstrument.frenchHorn, MidiInstrument.slapBass1],
+    melody: [MidiInstrument.clarinet, MidiInstrument.cello, MidiInstrument.frenchHorn, MidiInstrument.tuba],
     rhythm: MidiInstrument.pizzStrings,
     capture: MidiInstrument.vibraphone,
     check: MidiInstrument.tubularBells,
