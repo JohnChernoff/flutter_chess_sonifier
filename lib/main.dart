@@ -8,7 +8,10 @@ import 'package:flutter_chess_sonifier/pgn_database.dart';
 import 'package:flutter_chess_sonifier/transport.dart';
 import 'package:wp_chessboard/wp_chessboard.dart';
 import 'chess_midi_adapter.dart';
+import 'game_feel.dart';
 import 'game_picker.dart';
+import 'xpgn_db.dart';
+import 'package:xpgn_reader/xpgn_reader.dart';
 
 //TODO: centralize controls, responsive layout(s), MIDI export
 
@@ -49,6 +52,9 @@ class _SonifierAppState extends State<SonifierApp> {
   List<dc.Move> replayMoves = [];
   int displayedPly = 0;
   late final PgnDatabase pgnDatabase;
+  late final XpgnDatabase xpgnDatabase;
+  bool _useAnalysis = true;
+  String? _analysisNote;
 
   @override
   void initState() {
@@ -57,6 +63,8 @@ class _SonifierAppState extends State<SonifierApp> {
     chessBoardController.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     pgnDatabase = PgnDatabase();
     pgnDatabase.initialize();
+    xpgnDatabase = XpgnDatabase();
+    xpgnDatabase.initialize();
   }
 
   @override
@@ -130,9 +138,22 @@ class _SonifierAppState extends State<SonifierApp> {
               onPressed: () => _randomGame(play: true),
             ),
             ElevatedButton(onPressed: sonify, child: const Text("Sonify")),
+            FilterChip(
+              label: const Text("Use analysis"),
+              selected: _useAnalysis,
+              onSelected: (v) => setState(() => _useAnalysis = v),
+            ),
             //ElevatedButton(onPressed: _evolve, child: const Text("Evolve")),
           ],
         ),
+        if (_analysisNote != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _analysisNote!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         const SizedBox(height: 8),
         SizedBox(
           width: size,
@@ -177,15 +198,42 @@ class _SonifierAppState extends State<SonifierApp> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invalid Pgn")));
       return;
     }
+    final headers = parsePgnHeaders(pgnController.text);
+
     await widget.sonifier.ready;
+    await xpgnDatabase.initialize();
+
     chess = tmpChess;
-    widget.sonifier.sequencer
-      ..removeListener(syncBoardToAudio)
-      ..addListener(syncBoardToAudio);
-
-    widget.sonifier.startGame();
-
     replayMoves = chess.history.map((s) => s.move).toList();
+
+    // Find the engine analysis for this game, if there is any.
+    XpgnGame? analysis;
+    String note;
+    if (!_useAnalysis) {
+      note = 'Analysis switched off';
+    } else if (!xpgnDatabase.isReady) {
+      note = 'No analysis file loaded (${xpgnDatabase.error ?? "unknown error"})';
+    } else {
+      analysis = xpgnDatabase.find(headers);
+      if (analysis == null) {
+        note = 'No analysis found for this game';
+      } else if (analysis.moveCount != replayMoves.length) {
+        note = 'Analysis has ${analysis.moveCount} plies but this game has '
+            '${replayMoves.length}; ignoring it';
+        analysis = null;
+      } else {
+        note = 'Using engine analysis';
+      }
+    }
+    if (mounted) setState(() => _analysisNote = note);
+
+    // Nothing should react to the sequencer while the tracks are rebuilt.
+    widget.sonifier.sequencer.removeListener(syncBoardToAudio);
+
+    widget.sonifier
+      ..seedWith(gameSeed(replayMoves.map((m) => m.fromAlgebraic + m.toAlgebraic)))
+      ..feel = analysis == null ? null : GameFeel.fromGame(analysis)
+      ..startGame();
 
     // Generate the music from the initial position forward.
     resetGame();

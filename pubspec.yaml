@@ -38,6 +38,8 @@ dependencies:
   wp_chessboard:
     path: "C:/Users/jac107/IdeaProjects/flutter/wp_chessboard_fork"
 
+  xpgn_reader:
+    path: "C:/Users/jac107/IdeaProjects/dart/xpgn_reader"
   logging: ^1.2.0
   universal_html: ^2.2.4
   audioplayers: ^6.4.0

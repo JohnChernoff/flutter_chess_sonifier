@@ -15,6 +15,7 @@ import 'package:zug_music/sequencer.dart';
 import 'package:zug_music/zug_midi.dart';
 import 'package:zug_music/zug_music.dart';
 import 'chess_midi_adapter.dart';
+import 'game_feel.dart';
 
 /// Same order as chesslib's PieceType (pawn = 0 ... king = 5).
 //enum PieceKind { pawn, knight, bishop, rook, queen, king }
@@ -78,7 +79,7 @@ class ChessSonifier {
   late final MidiSequencer sequencer = MidiSequencer(mgr);
   late final Future<void> ready;
 
-  final Random _rnd;
+  Random _rnd;
   final List<ZugMelody> voices;
 
   /// Rhythm figures are laid down every [tempo] plies.
@@ -124,6 +125,17 @@ class ChessSonifier {
   late final ZugMelody _rankVoice = ZugMelody(60, minPitch: 48, maxPitch: 84);
   // A melody note waiting for the next melodic event to tell it how long to last.
   ({TrackType track, int pitch, int velocity, double start})? _pendingMelody;
+
+  /// Engine analysis for the current game; null for un-analysed PGNs.
+  GameFeel? feel;
+
+  bool _seeded = false;
+
+  /// Same moves in, same random choices out. Call before [startGame].
+  void seedWith(int seed) {
+    _rnd = Random(seed);
+    _seeded = true;
+  }
 
   ChessSonifier({
     required this.preset,
