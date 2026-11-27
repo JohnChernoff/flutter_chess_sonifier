@@ -208,9 +208,11 @@ class ChessSonifier {
     if (rhythmType != CompType.ranks) {
       _addMelody(move);
     } else {
+      _addFancierRankMelody(move, ply);
+
       //if (move.piece == lastMovedPiece || move.piece == PieceType.PAWN || board.in_check || move.captured != null) {
       if (move.piece != lastMovedPiece && !board.in_check && move.captured == null) {
-        _addFancyRankMelody(move,ply);
+        //_addFancyRankMelody(move,ply);
       }
     }
 
@@ -308,7 +310,18 @@ class ChessSonifier {
   }
 
   void _addFancierRankMelody(Move m, int ply) {
-
+    if (feel == null) return;
+    final voice = voices[_currentSolo];
+    voice.currentTick = ply.toDouble();
+    final f = feel!.arousalAt(voice.currentTick) * 2; //(feel generally goes from 0-.5)
+    int subBeats = (8 * f).round();
+    print("Move: ${m.pan}, Feel: ${f.toStringAsFixed(2)}, subBeats: $subBeats");
+    double dur = 1 / subBeats;
+    for (int i = 0; i<subBeats; i++) {
+      final interval =  (_rnd.nextInt(8) - 8) + 4;
+      print("Interval: $interval");
+      addVoiceNote(voice,interval, dur, m);
+    }
   }
 
   void _addFancyRankMelody(Move m, int ply) {
