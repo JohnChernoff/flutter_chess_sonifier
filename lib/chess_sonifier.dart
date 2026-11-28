@@ -9,6 +9,7 @@ library;
 
 import 'dart:math';
 import 'package:chess/chess.dart';
+import 'package:xpgn_reader/xpgn_reader.dart';
 import 'package:zug_music/key.dart';
 import 'package:zug_music/scale.dart';
 import 'package:zug_music/sequencer.dart';
@@ -17,9 +18,6 @@ import 'package:zug_music/zug_midi.dart';
 import 'package:zug_music/zug_music.dart';
 import 'chess_midi_adapter.dart';
 import 'game_feel.dart';
-
-/// Same order as chesslib's PieceType (pawn = 0 ... king = 5).
-//enum PieceKind { pawn, knight, bishop, rook, queen, king }
 
 enum TrackType {
   melody1(false),
@@ -43,7 +41,7 @@ enum CompType { chords, arp, loop, ranks }
 
 enum RankPitchMode { absolute, interval }   // 'degree' no longer fits, since it's semitones now
 
-enum MelodyStyle { distance, piece }
+enum MelodyStyle { thematic, distance, piece }
 
 /// Starting pitch and range of one melodic voice (MIDI note numbers).
 class VoiceSpec {
@@ -51,7 +49,7 @@ class VoiceSpec {
   const VoiceSpec(this.start, this.minPitch, this.maxPitch);
 }
 
-/// One note. [velocity] is MIDI-style (0-127); times are in seconds.
+/// [velocity] is MIDI-style (0-127); times are in seconds.
 class SonNote {
   final TrackType track;
   final int pitch;
@@ -73,8 +71,6 @@ class _NoteRec {
   const _NoteRec(this.note, this.piece);
 }
 
-
-
 class ChessSonifier {
 
   final Map<TrackType, MidiInstrument> instrumentOverrides = {};
@@ -83,22 +79,24 @@ class ChessSonifier {
   late final Future<void> ready;
 
   Random _rnd;
+
   final List<ZugMelody> voices;
 
   ZugTheme theme = ZugTheme(Meter(numerator: 4, denominator: 4, strongBeatOffsets: [1,3]));
 
-  bool get themeReady => theme.length >= 16;
+  int themeLength = 12;
+  bool get themeReady => theme.length >= themeLength;
+
   /// Rhythm figures are laid down every [tempo] plies.
   double tempo;
+  int tempoCool = 0;
+
   MelodyStyle style;
 
   /// Reflect melodies back into range instead of pinning them at the edge.
   bool bounce;
 
-  /// Offsets (seconds, relative to the move's ply) of the capture and check
-  /// cues. Both come straight from the Java version: the capture lands 1.5 s
-  /// after the move starts, and the check cue is placed 1.5 s BEFORE the
-  /// current ply, i.e. just ahead of the move that gave the check.
+  /// Offsets (seconds, relative to the move's ply) of the capture and check cues.
   double captureOffset = .33;
   double checkOffset = -.15;
 
@@ -106,6 +104,7 @@ class ChessSonifier {
   final List<double> noteLengths = [.25, .25, .5, .5, 1, 1, 2, 2];
 
   ZugKey key = ZugKey(ZugNote.noteC, Scale.majorScale);
+
   CompType rhythmType = CompType.ranks;
 
   /// Every note produced so far, in the order it was generated.
@@ -126,9 +125,10 @@ class ChessSonifier {
   CompType startingRhythm = CompType.ranks;
   RankPitchMode rankMode = RankPitchMode.absolute;
   int _rankPitch = 60;                         // last pitch, for interval mode
-  static const _rankLo = 32, _rankHi = 92;     // three octaves
+  static const _rankLo = 32, _rankHi = 92;
   PieceType lastMovedPiece = PieceType.KING;
   late final ZugMelody _rankVoice = ZugMelody(60, minPitch: 48, maxPitch: 84);
+
   // A melody note waiting for the next melodic event to tell it how long to last.
   ({TrackType track, int pitch, int velocity, double start})? _pendingMelody;
 
@@ -137,11 +137,13 @@ class ChessSonifier {
 
   bool _seeded = false;
 
-  /// Same moves in, same random choices out. Call before [startGame].
+  /// Same moves in, same random choices out. Call before [sonifyGame].
   void seedWith(int seed) {
     _rnd = Random(seed);
     _seeded = true;
   }
+
+  List<XMove> movelist = [];
 
   ChessSonifier({
     required this.preset,
@@ -178,7 +180,8 @@ class ChessSonifier {
     mgr.masterVolume = volume.clamp(0.0, 1.0);
   }
 
-  void startGame() {
+  void sonifyGame(List<XMove> moves) {
+    movelist = moves;
     notes.clear();
     _noteList.clear();
     _noteLoopIndex = 0;
@@ -194,16 +197,32 @@ class ChessSonifier {
     _rankPitch = 60;
     lastMovedPiece = PieceType.KING;
     _pendingMelody = null;
+    tempo = 4;
     theme = ZugTheme(Meter(numerator: 4, denominator: 4, strongBeatOffsets: [1,3]));
+    int ply = 0;
+    _makeTheme();
+    Chess chess = Chess();
+    for (final m in movelist) {
+      _sonifyMove(m, ply++, chess);
+      chess.make_move(m);
+    }
+    if (chess.game_over) {
+      _sonifyMove(XMove(chess.turn,chess.kings[chess.turn],
+          chess.kings[chess.turn == Color.BLACK ? Chess.WHITE : Chess.BLACK],
+          0,PieceType.KING,null,null,null,null), ply, chess);
+    }
+  }
+
+  void _makeTheme() {
+    final themeList = List.of(movelist);
+    themeList.sort((a,b) => (a.metrics?.arousal ?? 0).compareTo((b.metrics?.arousal ?? 0)));
+    for (final move in themeList.take(themeLength)) {
+      _addTheme(move);
+    }
   }
 
   /// Sonify one move. Call it with the position BEFORE the move is made.
-  void sonifyMove(Move move, int ply, Chess board) {
-
-    if (!themeReady) {
-      print("Adding move to theme: ${move.pan}");
-      _addTheme(move, ply);
-    }
+  void _sonifyMove(XMove move, int ply, Chess board) {
 
     //print("Sonifying: ${move.debug}");
     if (move.captured != null) {
@@ -218,22 +237,26 @@ class ChessSonifier {
       voices[_currentSolo].currentTick = ply.toDouble();
     }
 
-    if (rhythmType != CompType.ranks) {
-      _addMelody(move);
+    if (style == MelodyStyle.thematic) {
+      _addThematicMelody(move, ply);
     } else {
-      if (themeReady) _addThematicMelody(move, ply);
-
-      //if (move.piece == lastMovedPiece || move.piece == PieceType.PAWN || board.in_check || move.captured != null) {
-      if (move.piece != lastMovedPiece && !board.in_check && move.captured == null) {
-        //_addFancyRankMelody(move,ply);
-      }
+      _addMelody(move);
     }
 
     if (board.in_check) {
       _add(TrackType.check, defMinPitch + move.to, 99, ply + checkOffset, 1);
     }
 
+    tempoCool++;
     if (ply % tempo == 0) {
+      final a = feel!.arousalAt(ply.toDouble()) * 2;
+      final t = ((1-a) * 4) + 1;
+      print("Arousal: $a");
+
+      //(1-(move.metrics!.arousal * 2) * 4).floor() + 1;
+      //if (move.metrics != null) setTempo(t.floorToDouble());
+      //if (move.metrics != null) tempo = ((1-(move.metrics!.winPct/100)) * 4).floor() + 1;
+
       switch (rhythmType) {
         case CompType.chords:
           _addRhythmChords(board, ply, cross: true);
@@ -243,10 +266,6 @@ class ChessSonifier {
           _addNoteLoop(ply, 8, 4, straight: true);
         case CompType.ranks:
           _addRankFigure(board, ply, move);
-      }
-
-      if (rhythmType == CompType.ranks) {
-
       }
 
       _addBeat(board,ply,move);
@@ -261,6 +280,15 @@ class ChessSonifier {
     }
 
     lastMovedPiece = move.piece;
+  }
+
+  void setTempo(double t) {
+    print("Setting tempo: $t, $tempo, $tempoCool");
+    if (t < tempo || tempoCool > 4) {
+      tempo = t;
+      tempoCool = 0;
+      print("Tempo: $tempo");
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -280,18 +308,15 @@ class ChessSonifier {
     } while (!allowSame && prev == rhythmType);
   }
 
-  // The Java used Scale.values()[ply % 3] (major, natural minor, blues). The
-  // Dart Scale enum is ordered differently (index 2 is harmonic minor), so
-  // the three scales are listed by name.
   static const _keyScales = [Scale.majorScale, Scale.naturalMinorScale, Scale.bluesScale];
 
-  void _newKey(Move move, int ply) {
+  void _newKey(XMove move, int ply) {
     key = ZugKey(ZugNote.values[move.toFile], _keyScales[ply % 3]);
   }
 
-  void addVoiceNote(ZugMelody voice, int interval, double dur, Move? m) {
+  void addVoiceNote(ZugMelody voice, int interval, double dur, Move? m, {int v = 50}) {
     voice.setPitchFrom(key.getNextPitch(voice, interval, bounce: bounce));
-    _add(TrackType.values[_currentSolo], voice.pitch, 50, voice.currentTick, dur);
+    _add(TrackType.values[_currentSolo], voice.pitch, v, voice.currentTick, dur);
     voice.currentTick += dur;
     _noteList.add(_NoteRec(voice.note, m?.piece ?? PieceType.KING));
   }
@@ -299,30 +324,29 @@ class ChessSonifier {
   // ---------------------------------------------------------------------
   // Melody
   // ---------------------------------------------------------------------
-  void _addMelody(Move m) { //print("Adding melody: ${m.debug}");
+  void _addMelody(XMove m) { //print("Adding melody: ${m.debug}");
     final voice = voices[_currentSolo];
     final dx = (m.fromFile - m.toFile).toDouble();
     final dy = (m.fromRank - m.toRank).toDouble();
     final distance = sqrt(dx * dx + dy * dy);
-    final reach = m.white ? m.toRank : 7 - m.toRank;
-
     final int interval;
     final double dur;
     switch (style) {
       case MelodyStyle.distance:
         // Up the board = up the scale, by the length of the move.
         interval = (ChessUtil.toBoardIndex(m.from) < ChessUtil.toBoardIndex(m.to) ? distance : -distance).floor();
-        //print("Reach: $reach");
+        final reach = m.white ? m.toRank : 7 - m.toRank;
         dur = noteLengths[reach];
       case MelodyStyle.piece:
         interval = m.piece.interval * (m.white ? 1 : -1);
         dur = noteLengths[min(distance.toInt(), noteLengths.length - 1)] * 2;
+      case MelodyStyle.thematic: //shouldn't occur
+        return;
     }
-
     addVoiceNote(voice, interval, dur, m);
   }
 
-  void _addTheme(Move m, int ply) {
+  void _addTheme(XMove m) {
     int i2 = m.color == Color.BLACK ? 7 - m.fromRank : m.fromRank;
     int i1 = m.color == Color.BLACK ? 7 - m.toRank : m.toRank;
     int i = i1 + i2;
@@ -350,26 +374,31 @@ class ChessSonifier {
     }
   }
 
-  void _addThematicMelody(Move m, int ply) {
+  void _addThematicMelody(XMove m, int ply) {
     final voice = voices[_currentSolo];
-    voice.reset();                       // fix 5; reset first, then set the clock
+    //voice.reset();                       //reset first, then set the clock
     voice.currentTick = ply.toDouble();
 
-    // arousalAt is already 0..1 (fix 1); hold a middling density without analysis (fix 2).
+    // hold a middling density without analysis
     final a = feel?.arousalAt(voice.currentTick) ?? 0.5;
-    final count = min(8, (8 * a).round());
-    if (count == 0) return;
+    final count = min(7, (7 * a).round()) + 1;
+    //if (count == 0) return;
 
-    final start = m.white ? m.toRank : 7 - m.toRank;   // fix 6; max start + count is 15
+    final start = m.white ? m.toRank : 7 - m.toRank;   //max start + count is 15
 
     // Development: mirror the theme while Black is better.
     final black = (feel?.valenceAt(voice.currentTick) ?? 0) < 0;
     for (final e in theme.scaledSlice(start, start + count, 1, invert: black)) {
-      addVoiceNote(voice, e.interval, e.duration, m);
+      if (e.interval != 0) {
+        addVoiceNote(voice, e.interval, e.duration, m, v: (e.volume * 127).floor());
+      } else {
+        print("Skipping: $e");
+        addVoiceNote(voice, e.interval, e.duration, m, v: 0);
+      }
     }
   }
 
-  void _addFancyRankMelody(Move m, int ply) {
+  void _addFancyRankMelody(XMove m, int ply) {
     final voice = voices[_currentSolo];
     voice.currentTick = ply.toDouble();   // each group is exactly 1 s long
     IntervalMap intMap = IntervalMap.fromMove(m);
@@ -396,7 +425,7 @@ class ChessSonifier {
     }
   }
 
-  void _addRankMelody(Move m, int ply) {
+  void _addRankMelody(XMove m, int ply) {
     final voice = voices[_currentSolo];
     final dx = (m.fromFile - m.toFile).toDouble();
     final dy = (m.fromRank - m.toRank).toDouble();
@@ -486,7 +515,7 @@ class ChessSonifier {
     return pitch;
   }
 
-  void _addRankFigure(Chess board, int ply, Move move) { //return;
+  void _addRankFigure(Chess board, int ply, Move move) {
     const slots = 8;
     const slotDur = 1 / slots;
     final values = _rankValues(board, move);
@@ -519,7 +548,7 @@ class ChessSonifier {
         final v = values[r];
         if (v == 0) continue; // empty rank = 32nd rest
         final t = ply + r * slotDur;
-        print("Adding: $trackType => $t");
+        //print("Adding: $trackType => $t");
         _add(trackType, 60, (feel!.arousalAt(t) * 100).round(), t, slotDur);
       }
     }
@@ -693,16 +722,6 @@ extension NumberParsing on PieceType {
   };
 }
 
-extension MoveUtil on Move {
-  int get fromFile => Chess.file(from);
-  int get fromRank => 7 - Chess.rank(from); // 0 = rank 1
-  int get toFile => Chess.file(to);
-  int get toRank => 7 - Chess.rank(to);
-  bool get white => color == Color.WHITE;
-  String get pan => "$fromAlgebraic -> $toAlgebraic";
-  String get debug => "[$pan, $from -> $to, FromFile: $fromFile, FromRank: $fromRank, ToFile: $toFile, ToRank: $toRank]";
-}
-
 extension ChessUtil on Chess {
   PieceType? pieceAt(int file, int rank) => board[(7 - rank) * 16 + file]?.type;
   /// 0x88 square -> a1 = 0 ... h8 = 63
@@ -722,7 +741,7 @@ class IntervalMap {
     required this.toFile,
   });
 
-  factory IntervalMap.fromMove(Move m) {
+  factory IntervalMap.fromMove(XMove m) {
     int bc = m.color == Color.BLACK ? -7 : 0;
     final side = m.color == Color.WHITE ? 1 : -1;
     final dx = (m.toFile - m.fromFile).toDouble();

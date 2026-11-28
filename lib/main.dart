@@ -13,7 +13,7 @@ import 'game_picker.dart';
 import 'xpgn_db.dart';
 import 'package:xpgn_reader/xpgn_reader.dart';
 
-//TODO: centralize controls, responsive layout(s), MIDI export
+//TODO: MIDI export
 
 void main() {
   ChessSonifier sonifier = ChessSonifier(preset: EnsemblePreset.orchestra);
@@ -49,7 +49,7 @@ class _SonifierAppState extends State<SonifierApp> {
   late final WPChessboardController chessBoardController = WPChessboardController();
   late final TextEditingController pgnController = TextEditingController();
   dc.Chess chess = dc.Chess();
-  List<dc.Move> replayMoves = [];
+  List<XMove> replayMoves = [];
   int displayedPly = 0;
   late final PgnDatabase pgnDatabase;
   late final XpgnDatabase xpgnDatabase;
@@ -204,7 +204,6 @@ class _SonifierAppState extends State<SonifierApp> {
     await xpgnDatabase.initialize();
 
     chess = tmpChess;
-    replayMoves = chess.history.map((s) => s.move).toList();
 
     // Find the engine analysis for this game, if there is any.
     XpgnGame? analysis;
@@ -217,9 +216,9 @@ class _SonifierAppState extends State<SonifierApp> {
       analysis = xpgnDatabase.find(headers);
       if (analysis == null) {
         note = 'No analysis found for this game';
-      } else if (analysis.moveCount != replayMoves.length) {
+      } else if (analysis.moveCount != chess.history.length) {
         note = 'Analysis has ${analysis.moveCount} plies but this game has '
-            '${replayMoves.length}; ignoring it';
+            '${chess.history.length}; ignoring it';
         analysis = null;
       } else {
         note = 'Using engine analysis';
@@ -227,27 +226,15 @@ class _SonifierAppState extends State<SonifierApp> {
     }
     if (mounted) setState(() => _analysisNote = note);
 
+    replayMoves = analysis?.movelist ?? chess.history.map((m) => XMove.fromMove(m.move)).toList();
+
     // Nothing should react to the sequencer while the tracks are rebuilt.
     widget.sonifier.sequencer.removeListener(syncBoardToAudio);
 
     widget.sonifier
       ..seedWith(gameSeed(replayMoves.map((m) => m.fromAlgebraic + m.toAlgebraic)))
       ..feel = analysis == null ? null : GameFeel.fromGame(analysis)
-      ..startGame();
-
-    // Generate the music from the initial position forward.
-    resetGame();
-
-    int ply = 0;
-    for (final move in replayMoves) {
-      widget.sonifier.sonifyMove(move, ply++, chess);
-      chess.make_move(move);
-    }
-    if (chess.game_over) {
-      widget.sonifier.sonifyMove(dc.Move(chess.turn,chess.kings[chess.turn],
-          chess.kings[chess.turn == dc.Color.BLACK ? dc.Chess.WHITE : dc.Chess.BLACK],
-          0,dc.PieceType.KING,null,null), ply, chess);
-    }
+      ..sonifyGame(replayMoves);
 
     resetGame();
     displayedPly = 0;
