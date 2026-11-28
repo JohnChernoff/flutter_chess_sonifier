@@ -7,7 +7,8 @@ import 'chess_sonifier.dart';
 class SettingsWidget extends StatefulWidget {
   final ChessSonifier sonifier;
   final bool shrinkWrap;
-  const SettingsWidget(this.sonifier,{this.shrinkWrap = false, super.key});
+  final bool bare;
+  const SettingsWidget(this.sonifier,{this.shrinkWrap = false, this.bare = false, super.key});
   static final _instrumentItems = [
     for (final i in MidiInstrument.values)
       DropdownMenuItem(value: i, child: Text(i.name)),
@@ -23,6 +24,7 @@ class _SettingsWidgetState extends State<SettingsWidget> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.bare) return buildSettings();   // sheet use: settings only
     return ListView(
       shrinkWrap: widget.shrinkWrap,
       physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
@@ -32,127 +34,109 @@ class _SettingsWidgetState extends State<SettingsWidget> {
 
   Widget buildSettings() {
     final sonifier = widget.sonifier;
-    return Card(
-        child: ExpansionTile(
-          title: const Text('Sonification Settings'),
-          initiallyExpanded: false,
-          children: [
-            // Master volume
-            ListTile(
-              title: const Text('Master Volume'),
-              subtitle: Slider(
-                value: sonifier.mgr.masterVolume.clamp(0.0, 1.0),
-                min: 0,
-                max: 1,
-                divisions: 20,
-                label: '${(sonifier.mgr.masterVolume * 100).round()}%',
-                onChanged: (value) {
-                  setState(() => sonifier.setMasterVolume(value));
-                },
-              ),
-            ),
-
-            // Rhythm spacing
-            ListTile(
-              title: const Text('Rhythm Spacing'),
-              subtitle: Slider(
-                value: sonifier.tempo.clamp(1.0, 8.0),
-                min: 1,
-                max: 8,
-                divisions: 7,
-                label: '${sonifier.tempo.round()} plies',
-                onChanged: (value) {
-                  setState(() => sonifier.tempo = value);
-                },
-              ),
-            ),
-
-            // Rhythm type
-            ListTile(
-              title: const Text('Starting Rhythm Type'),
-              trailing: DropdownButton<CompType>(
-                value: sonifier.startingRhythm,
-                items: [
-                  for (final type in CompType.values)
-                    DropdownMenuItem(
-                      value: type,
-                      child: Text(type.name),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => sonifier.startingRhythm = value);
-                },
-              ),
-            ),
-
-            // Melody style
-            ListTile(
-              title: const Text('Melody Style'),
-              trailing: DropdownButton<MelodyStyle>(
-                value: sonifier.style,
-                items: [
-                  for (final style in MelodyStyle.values)
-                    DropdownMenuItem(
-                      value: style,
-                      child: Text(style.name),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => sonifier.style = value);
-                },
-              ),
-            ),
-
-            // Capture timing
-            ListTile(
-              title: const Text('Capture Offset'),
-              subtitle: Slider(
-                value: sonifier.captureOffset.clamp(0.0, 0.5),
-                min: 0,
-                max: 0.5,
-                divisions: 10,
-                label: '${sonifier.captureOffset.toStringAsFixed(2)} s',
-                onChanged: (value) {
-                  setState(() => sonifier.captureOffset = value);
-                },
-              ),
-            ),
-
-            // Check timing
-            ListTile(
-              title: const Text('Check Offset'),
-              subtitle: Slider(
-                value: sonifier.checkOffset.clamp(-0.5, 0.0),
-                min: -0.5,
-                max: 0,
-                divisions: 10,
-                label: '${sonifier.checkOffset.toStringAsFixed(2)} s',
-                onChanged: (value) {
-                  setState(() => sonifier.checkOffset = value);
-                },
-              ),
-            ),
-
-            SwitchListTile(
-              title: const Text('Bounce Melodies'),
-              value: sonifier.bounce,
-              onChanged: (value) {
-                setState(() => sonifier.bounce = value);
-              },
-            ),
-          ],
+    final items = <Widget>[
+      // Rhythm spacing
+      if (!sonifier.tempoFeel) ListTile(
+        title: const Text('Rhythm Spacing'),
+        subtitle: Slider(
+          value: sonifier.tempo.clamp(1.0, 8.0),
+          min: 1,
+          max: 8,
+          divisions: 7,
+          label: '${sonifier.tempo.round()} plies',
+          onChanged: (value) {
+            setState(() => sonifier.tempo = value);
+          },
         ),
-    );
+      ),
+
+      // Rhythm type
+      ListTile(
+        title: const Text('Starting Rhythm Type'),
+        trailing: DropdownButton<CompType>(
+          value: sonifier.startingRhythm,
+          items: [
+            for (final type in CompType.values)
+              DropdownMenuItem(
+                value: type,
+                child: Text(type.name),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => sonifier.startingRhythm = value);
+          },
+        ),
+      ),
+
+      // Melody style
+      ListTile(
+        title: const Text('Melody Style'),
+        trailing: DropdownButton<MelodyStyle>(
+          value: sonifier.style,
+          items: [
+            for (final style in MelodyStyle.values)
+              DropdownMenuItem(
+                value: style,
+                child: Text(style.name),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => sonifier.style = value);
+          },
+        ),
+      ),
+
+      // Capture timing
+      ListTile(
+        title: const Text('Capture Offset'),
+        subtitle: Slider(
+          value: sonifier.captureOffset.clamp(0.0, 0.5),
+          min: 0,
+          max: 0.5,
+          divisions: 10,
+          label: '${sonifier.captureOffset.toStringAsFixed(2)} s',
+          onChanged: (value) {
+            setState(() => sonifier.captureOffset = value);
+          },
+        ),
+      ),
+
+      // Check timing
+      ListTile(
+        title: const Text('Check Offset'),
+        subtitle: Slider(
+          value: sonifier.checkOffset.clamp(-0.5, 0.0),
+          min: -0.5,
+          max: 0,
+          divisions: 10,
+          label: '${sonifier.checkOffset.toStringAsFixed(2)} s',
+          onChanged: (value) {
+            setState(() => sonifier.checkOffset = value);
+          },
+        ),
+      ),
+
+      SwitchListTile(
+        title: const Text('Bounce Melodies'),
+        value: sonifier.bounce,
+        onChanged: (value) {
+          setState(() => sonifier.bounce = value);
+        },
+      ),
+    ];
+
+    return widget.bare ? Column(children: items) : Card(child: ExpansionTile(title: const Text("Settings"), children: items));
   }
 }
 
 class InstrumentCard extends StatefulWidget {
   final ChessSonifier sonifier;
   final List<TrackType> tracks;
+  final bool bare;
 
-  InstrumentCard(this.sonifier, {super.key}) : tracks = [
+  InstrumentCard(this.sonifier, {super.key, this.bare = false}) : tracks = [
     ...TrackType.values.where((t) => !t.drums && t.index < sonifier.voices.length),
     TrackType.comp,
     TrackType.capture,
@@ -186,25 +170,26 @@ class _InstrumentCardState extends State<InstrumentCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final body = <Widget>[
+      ListTile(
+        dense: true,
+        title: const Text('Randomize all'),
+        trailing: _busy
+            ? const SizedBox(
+            width: 20, height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2))
+            : IconButton(
+          icon: const Icon(Icons.casino),
+          onPressed: _randomize,
+        ),
+      ),
+      for (final track in widget.tracks)
+        _TrackRow(widget.sonifier, track, key: ValueKey(track)),
+    ];
+    return widget.bare ? Column(children: body) : Card(
       child: ExpansionTile(
         title: const Text('Instruments'),
-        children: [
-          ListTile(
-            dense: true,
-            title: const Text('Randomize all'),
-            trailing: _busy
-                ? const SizedBox(
-                width: 20, height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2))
-                : IconButton(
-              icon: const Icon(Icons.casino),
-              onPressed: _randomize,
-            ),
-          ),
-          for (final track in widget.tracks)
-              _TrackRow(widget.sonifier, track, key: ValueKey(track)),
-        ],
+        children: body,
       ),
     );
   }
